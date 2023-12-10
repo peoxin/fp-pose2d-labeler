@@ -20,10 +20,14 @@ from PyQt5.QtWidgets import (
 class Pose2DAlignmentLabeler(QMainWindow):
     def __init__(
         self,
+        viewer_scale=1.0,
         query_color=(255, 0, 0, 150),
         template_color=(0, 0, 255, 255),
         rotation_key=Qt.RightButton,
         rotation_speed=0.8,
+        rot_counterclockwise_key=Qt.Key_Q,
+        rot_clockwise_key=Qt.Key_E,
+        key_rotate_step=1,
         move_up_key=Qt.Key_Up,
         move_down_key=Qt.Key_Down,
         move_left_key=Qt.Key_Left,
@@ -34,6 +38,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         save_key=Qt.Key_S,
         name_query_pose2d_file: Callable[[str], str] = None,
         name_template_pose2d_file: Callable[[str], str] = None,
+        default_query_pattern: str = "*.png",
     ):
         super().__init__()
 
@@ -46,6 +51,9 @@ class Pose2DAlignmentLabeler(QMainWindow):
             template_color=template_color,
             rotation_key=rotation_key,
             rotation_speed=rotation_speed,
+            rot_counterclockwise_key=rot_counterclockwise_key,
+            rot_clockwise_key=rot_clockwise_key,
+            key_rotate_step=key_rotate_step,
             move_up_key=move_up_key,
             move_down_key=move_down_key,
             move_left_key=move_left_key,
@@ -53,6 +61,8 @@ class Pose2DAlignmentLabeler(QMainWindow):
             key_move_step=key_move_step,
         )
         self.graphic_view.setScene(self.fp_aligner)
+        self.viewer_scale = viewer_scale
+        self.graphic_view.scale(viewer_scale, viewer_scale)
         self.setCentralWidget(self.graphic_view)
 
         self.status_bar = CustomStatusBar(self)
@@ -92,9 +102,11 @@ class Pose2DAlignmentLabeler(QMainWindow):
         else:
             self._get_template_pose2d_filepath = self._get_pose2d_filepath
 
+        self.default_query_pattern = default_query_pattern
+
     def open_query_image(self):
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Open Query Image", "", "Images (*.png *.jpg)"
+            self, "Open Query Image", "", "Images (*.png *.jpg *bmp)"
         )
         if filename:
             self.query_list = [filename]
@@ -104,13 +116,18 @@ class Pose2DAlignmentLabeler(QMainWindow):
     def open_query_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Open Query Folder", "")
         if folder:
-            self.query_list = [str(p) for p in Path(folder).glob("*.png")]
+            self.query_list = [
+                str(p) for p in Path(folder).glob(self.default_query_pattern)
+            ]
+            if len(self.query_list) == 0:
+                self.status_bar.set_message("No image found.")
+                return
             self.cur_idx = 0
             self._load_query()
 
     def open_template_image(self):
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Open Template Image", "", "Images (*.png *.jpg)"
+            self, "Open Template Image", "", "Images (*.png *.jpg *bmp)"
         )
         if filename:
             self.template_path = filename
@@ -125,8 +142,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         query_pixmap = QPixmap(self.cur_query_path)
         self.fp_aligner.set_query_pixmap(query_pixmap)
 
-        width, height = self.fp_aligner.width(), self.fp_aligner.height()
-        self.resize(int(width) + 20, int(height) + 100)
+        self._resize_window()
 
         self.status_bar.set_message(f"Image: {self.cur_query_path}")
         self.status_bar.set_idx_indicator(self.cur_idx, len(self.query_list))
@@ -135,8 +151,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         template_pixmap = QPixmap(self.template_path)
         self.fp_aligner.set_template_pixmap(template_pixmap)
 
-        width, height = self.fp_aligner.width(), self.fp_aligner.height()
-        self.resize(int(width) + 20, int(height) + 100)
+        self._resize_window()
 
     def _load_template_pose2d(self):
         if Path(self.template_pose2d_path).exists():
@@ -211,6 +226,11 @@ class Pose2DAlignmentLabeler(QMainWindow):
         else:
             super().keyPressEvent(event)
 
+    def _resize_window(self):
+        width, height = self.fp_aligner.width(), self.fp_aligner.height()
+        width, height = width * self.viewer_scale, height * self.viewer_scale
+        self.resize(int(width) + 20, int(height) + 100)
+
 
 class FingerprintManualAligner(QGraphicsScene):
     def __init__(
@@ -220,6 +240,9 @@ class FingerprintManualAligner(QGraphicsScene):
         grayscale_th=250,
         rotation_key=Qt.RightButton,
         rotation_speed=1.0,
+        rot_counterclockwise_key=Qt.Key_Q,
+        rot_clockwise_key=Qt.Key_E,
+        key_rotate_step=1,
         move_up_key=Qt.Key_Up,
         move_down_key=Qt.Key_Down,
         move_left_key=Qt.Key_Left,
@@ -233,6 +256,9 @@ class FingerprintManualAligner(QGraphicsScene):
         self.grayscale_th = grayscale_th
         self.rotation_key = rotation_key
         self.rotation_speed = rotation_speed
+        self.rot_counterclockwise_key = rot_counterclockwise_key
+        self.rot_clockwise_key = rot_clockwise_key
+        self.key_rotate_step = key_rotate_step
         self.move_up_key = move_up_key
         self.move_down_key = move_down_key
         self.move_left_key = move_left_key
@@ -322,6 +348,14 @@ class FingerprintManualAligner(QGraphicsScene):
         elif event.key() == self.move_right_key:
             if self._has_item("query_item"):
                 self.query_item.moveBy(self.key_move_step, 0)
+        elif event.key() == self.rot_counterclockwise_key:
+            if self._has_item("query_item") and not self.query_item.is_mouse_rotating:
+                cur_rotation = self.query_item.rotation()
+                self.query_item.setRotation(cur_rotation - self.key_rotate_step)
+        elif event.key() == self.rot_clockwise_key:
+            if self._has_item("query_item") and not self.query_item.is_mouse_rotating:
+                cur_rotation = self.query_item.rotation()
+                self.query_item.setRotation(cur_rotation + self.key_rotate_step)
         else:
             super().keyPressEvent(event)
 
@@ -342,6 +376,7 @@ class DraggablePixmapItem(QGraphicsPixmapItem):
         self.setTransformOriginPoint(*transform_origin)
 
         self.cur_rot_angle = 0
+        self.is_mouse_rotating = False
         self.rotation_key = rotation_key
         self.rot_speed = rotation_speed
 
@@ -350,6 +385,7 @@ class DraggablePixmapItem(QGraphicsPixmapItem):
             x, y = event.pos().x(), event.pos().y()
             x, y = x - self.origin_x, y - self.origin_y
             self.ref_angle = np.rad2deg(np.arctan2(y, x))
+            self.is_mouse_rotating = True
         else:
             super().mousePressEvent(event)
 
@@ -365,6 +401,12 @@ class DraggablePixmapItem(QGraphicsPixmapItem):
             self.ref_angle = cur_angle
         else:
             super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == self.rotation_key:
+            self.is_mouse_rotating = False
+        else:
+            super().mouseReleaseEvent(event)
 
     def _diff_angle(self, angle_from, angle_to):
         return (angle_to - angle_from + 180) % 360 - 180
@@ -400,6 +442,6 @@ if __name__ == "__main__":
     import sys
 
     app = QApplication(sys.argv)
-    window = Pose2DAlignmentLabeler()
+    window = Pose2DAlignmentLabeler(viewer_scale=1.5)
     window.show()
     sys.exit(app.exec_())

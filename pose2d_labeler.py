@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 class Pose2DLabeler(QMainWindow):
     def __init__(
         self,
+        viewer_scale=1.0,
         point_radius=10,
         line_width=5,
         center_color=Qt.red,
@@ -30,6 +31,7 @@ class Pose2DLabeler(QMainWindow):
         prev_key=Qt.Key_A,
         save_key=Qt.Key_S,
         name_pose2d_file: Callable[[str], str] = None,
+        default_img_pattern: str = "*.bmp",
     ):
         super().__init__()
 
@@ -46,6 +48,8 @@ class Pose2DLabeler(QMainWindow):
             direction_key=direction_key,
         )
         self.graphic_view.setScene(self.annotator)
+        self.viewer_scale = viewer_scale
+        self.graphic_view.scale(viewer_scale, viewer_scale)
         self.setCentralWidget(self.graphic_view)
 
         self.status_bar = CustomStatusBar(self)
@@ -73,10 +77,11 @@ class Pose2DLabeler(QMainWindow):
 
         if name_pose2d_file is not None:
             self._get_pose2d_filepath = name_pose2d_file
+        self.default_img_pattern = default_img_pattern
 
     def open_image(self):
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Open Image", "", "Images (*.png *.jpg)"
+            self, "Open Image", "", "Images (*.png *.jpg *bmp)"
         )
         if filename:
             self.img_list = [filename]
@@ -86,7 +91,12 @@ class Pose2DLabeler(QMainWindow):
     def open_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Open Folder", "")
         if folder:
-            self.img_list = [str(p) for p in Path(folder).glob("*.png")]
+            self.img_list = [
+                str(p) for p in Path(folder).glob(self.default_img_pattern)
+            ]
+            if len(self.img_list) == 0:
+                self.status_bar.set_message("No image found.")
+                return
             self.cur_idx = 0
             self._load_image()
 
@@ -99,6 +109,7 @@ class Pose2DLabeler(QMainWindow):
         self.annotator.set_pixmap_pose2d(pixmap, pose2d)
 
         width, height = self.annotator.width(), self.annotator.height()
+        width, height = width * self.viewer_scale, height * self.viewer_scale
         self.resize(int(width) + 20, int(height) + 80)
 
         self.status_bar.set_message(f"Image: {self.cur_img_path}")
@@ -190,7 +201,8 @@ class Pose2DAnnotator(QGraphicsScene):
         if pose2d is None:
             self.cx, self.cy, self.angle = None, None, None
         else:
-            self.cx, self.cy, self.angle = pose2d
+            self.cx, self.cy, shifted_angle = pose2d
+            self.angle = (shifted_angle + 90 + 360) % 360
             self._draw_center()
             self._draw_direction_from_center()
 
@@ -268,7 +280,8 @@ class Pose2DAnnotator(QGraphicsScene):
             self.removeItem(getattr(self, name))
 
     def get_pose2d(self):
-        return self.cx, self.cy, self.angle
+        shifted_angle = (self.angle - 90 + 180) % 360 - 180
+        return self.cx, self.cy, shifted_angle
 
     def is_annotated(self):
         return self.cx is not None and self.cy is not None and self.angle is not None
