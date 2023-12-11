@@ -191,7 +191,6 @@ class Pose2DAnnotator(QGraphicsScene):
         self.center_key = center_key
         self.direction_key = direction_key
 
-        self.is_pixmap_loaded = False
         self.cx, self.cy, self.angle = None, None, None
 
     def set_pixmap_pose2d(self, pixmap, pose2d=None):
@@ -199,7 +198,6 @@ class Pose2DAnnotator(QGraphicsScene):
 
         self.pixmap_item = QGraphicsPixmapItem(pixmap)
         self.addItem(self.pixmap_item)
-        self.is_pixmap_loaded = True
 
         if pose2d is None:
             self.cx, self.cy, self.angle = None, None, None
@@ -240,7 +238,7 @@ class Pose2DAnnotator(QGraphicsScene):
         self.addItem(self.line_start_item)
 
     def mouseMoveEvent(self, event):
-        if not self.is_pixmap_loaded:
+        if not self.is_pixmap_loaded():
             return
 
         # Update line.
@@ -252,7 +250,7 @@ class Pose2DAnnotator(QGraphicsScene):
             super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event):
-        if not self.is_pixmap_loaded:
+        if not self.is_pixmap_loaded():
             return
 
         if event.button() == self.center_key:
@@ -291,6 +289,9 @@ class Pose2DAnnotator(QGraphicsScene):
 
     def is_annotated(self):
         return self.cx is not None and self.cy is not None and self.angle is not None
+
+    def is_pixmap_loaded(self):
+        return self._has_item("pixmap_item")
 
 
 class CustomStatusBar(QStatusBar):

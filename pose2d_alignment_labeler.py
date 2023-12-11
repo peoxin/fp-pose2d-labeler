@@ -214,7 +214,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         point = np.array([*self.template_pose2d[:2], 1])
         cx, cy = np.matmul(affine_mat, point)[:2]
         cx, cy = np.round(cx), np.round(cy)
-        angle = rot + self.template_pose2d[2]
+        angle = (rot + self.template_pose2d[2] + 180) % 360 - 180
         return cx, cy, angle
 
     def keyPressEvent(self, event):
