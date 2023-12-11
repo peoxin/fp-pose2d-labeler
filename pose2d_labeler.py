@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QGraphicsView,
     QGraphicsScene,
+    QGraphicsPixmapItem,
     QGraphicsLineItem,
     QGraphicsEllipseItem,
     QFileDialog,
@@ -195,7 +196,9 @@ class Pose2DAnnotator(QGraphicsScene):
 
     def set_pixmap_pose2d(self, pixmap, pose2d=None):
         self.clear()
-        self.addPixmap(pixmap)
+
+        self.pixmap_item = QGraphicsPixmapItem(pixmap)
+        self.addItem(self.pixmap_item)
         self.is_pixmap_loaded = True
 
         if pose2d is None:
@@ -262,7 +265,9 @@ class Pose2DAnnotator(QGraphicsScene):
             super().mousePressEvent(event)
 
     def _draw_direction_from_center(self):
-        length = min(self.width(), self.height()) / 4
+        pixmap_width = self.pixmap_item.pixmap().width()
+        pixmap_height = self.pixmap_item.pixmap().height()
+        length = min(pixmap_width, pixmap_height) / 4
         start = QPointF(self.cx, self.cy)
         end = QPointF(
             self.cx + length * np.cos(np.deg2rad(-self.angle)),
@@ -280,8 +285,9 @@ class Pose2DAnnotator(QGraphicsScene):
             self.removeItem(getattr(self, name))
 
     def get_pose2d(self):
+        cx, cy = np.round(self.cx), np.round(self.cy)
         shifted_angle = (self.angle - 90 + 180) % 360 - 180
-        return self.cx, self.cy, shifted_angle
+        return cx, cy, shifted_angle
 
     def is_annotated(self):
         return self.cx is not None and self.cy is not None and self.angle is not None

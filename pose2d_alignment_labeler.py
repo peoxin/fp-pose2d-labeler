@@ -213,6 +213,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         affine_mat = np.linalg.inv(affine_mat)
         point = np.array([*self.template_pose2d[:2], 1])
         cx, cy = np.matmul(affine_mat, point)[:2]
+        cx, cy = np.round(cx), np.round(cy)
         angle = rot + self.template_pose2d[2]
         return cx, cy, angle
 
