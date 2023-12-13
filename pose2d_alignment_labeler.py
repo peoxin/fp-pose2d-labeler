@@ -36,8 +36,11 @@ class Pose2DAlignmentLabeler(QMainWindow):
         next_key=Qt.Key_D,
         prev_key=Qt.Key_A,
         save_key=Qt.Key_S,
+        save_key_modifier=Qt.ControlModifier,
         name_query_pose2d_file: Callable[[str], str] = None,
         name_template_pose2d_file: Callable[[str], str] = None,
+        enable_auto_find_template=False,
+        template_auto_finder: Callable[[str], str] = None,
         default_query_pattern: str = "*.png",
     ):
         super().__init__()
@@ -91,16 +94,22 @@ class Pose2DAlignmentLabeler(QMainWindow):
         self.next_key = next_key
         self.prev_key = prev_key
         self.save_key = save_key
+        self.save_key_modifier = save_key_modifier
 
         if name_query_pose2d_file is not None:
-            self._get_query_pose2d_filepath = name_query_pose2d_file
+            self._get_query_pose2d_file = name_query_pose2d_file
         else:
-            self._get_query_pose2d_filepath = self._get_pose2d_filepath
+            self._get_query_pose2d_file = self._get_pose2d_filepath
 
         if name_template_pose2d_file is not None:
-            self._get_template_pose2d_filepath = name_template_pose2d_file
+            self._get_template_pose2d_file = name_template_pose2d_file
         else:
-            self._get_template_pose2d_filepath = self._get_pose2d_filepath
+            self._get_template_pose2d_file = self._get_pose2d_filepath
+
+        if not enable_auto_find_template:
+            self._get_template_from_query = None
+        elif template_auto_finder is not None:
+            self._get_template_from_query = template_auto_finder
 
         self.default_query_pattern = default_query_pattern
 
@@ -130,17 +139,36 @@ class Pose2DAlignmentLabeler(QMainWindow):
             self, "Open Template Image", "", "Images (*.png *.jpg *bmp)"
         )
         if filename:
-            self.template_path = filename
-            self.template_pose2d_path = self._get_template_pose2d_filepath(filename)
-            self._load_template()
-            self._load_template_pose2d()
-            self.status_bar.set_addition_message(f"Template: {self.template_path}")
+            self._open_template(filename)
+
+    def _auto_open_template(self):
+        if self._get_template_from_query is not None:
+            try:
+                template_path = self._get_template_from_query(self.cur_query_path)
+                if template_path is not None and Path(template_path).exists():
+                    self._open_template(template_path)
+            except Exception as e:
+                print(e)
+
+    def _open_template(self, filepath):
+        self.template_path = filepath
+        self.template_pose2d_path = self._get_template_pose2d_file(filepath)
+        self._load_template()
+        self._load_template_pose2d()
+        self._transform_query_by_pose2d()
+        self.status_bar.set_addition_message(f"Template: {self.template_path}")
 
     def _load_query(self):
         self.cur_query_path = self.query_list[self.cur_idx]
+        self.cur_query_pose2d_path = self._get_query_pose2d_file(self.cur_query_path)
 
         query_pixmap = QPixmap(self.cur_query_path)
         self.fp_aligner.set_query_pixmap(query_pixmap)
+        self._load_query_pose2d()
+        self._transform_query_by_pose2d()
+
+        if self._get_template_from_query is not None:
+            self._auto_open_template()
 
         self._resize_window()
 
@@ -153,6 +181,13 @@ class Pose2DAlignmentLabeler(QMainWindow):
 
         self._resize_window()
 
+    def _load_query_pose2d(self):
+        if Path(self.cur_query_pose2d_path).exists():
+            with open(self.cur_query_pose2d_path, "r") as f:
+                self.query_pose2d = [float(x) for x in f.readline().split()]
+        else:
+            self.query_pose2d = None
+
     def _load_template_pose2d(self):
         if Path(self.template_pose2d_path).exists():
             with open(self.template_pose2d_path, "r") as f:
@@ -160,8 +195,14 @@ class Pose2DAlignmentLabeler(QMainWindow):
         else:
             raise FileNotFoundError(f"{self.template_pose2d_path} not found.")
 
+    def _transform_query_by_pose2d(self):
+        if self._has_var("query_pose2d") and self._has_var("template_pose2d"):
+            rot_center = self.fp_aligner.get_query_rot_center()
+            transfrom_params = self._get_transform_from_pose2d(rot_center)
+            self.fp_aligner.transform_query_item(*transfrom_params)
+
     def _next_query(self):
-        if hasattr(self, "cur_idx") and hasattr(self, "query_list"):
+        if self._has_var("cur_idx") and self._has_var("query_list"):
             if self.cur_idx == len(self.query_list) - 1:
                 self.cur_idx = 0
             else:
@@ -169,7 +210,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
             self._load_query()
 
     def _prev_query(self):
-        if hasattr(self, "cur_idx") and hasattr(self, "query_list"):
+        if self._has_var("cur_idx") and self._has_var("query_list"):
             if self.cur_idx == 0:
                 self.cur_idx = len(self.query_list) - 1
             else:
@@ -179,11 +220,18 @@ class Pose2DAlignmentLabeler(QMainWindow):
     def _get_pose2d_filepath(self, img_path):
         return str(Path(img_path).with_suffix(".pose2d"))
 
+    def _get_template_from_query(self, query_path):
+        filepath = Path(query_path).with_suffix(".template")
+        if filepath.exists():
+            with open(filepath, "r") as f:
+                return f.readline().strip()
+        return None
+
     def save_query_pose2d(self):
         if self.fp_aligner.is_aligned():
             transfrom_params = self.fp_aligner.get_query_transform()
             pose2d = self._compute_query_pose2d(*transfrom_params)
-            save_path = self._get_query_pose2d_filepath(self.cur_query_path)
+            save_path = self._get_query_pose2d_file(self.cur_query_path)
             self._write_pose2d(pose2d, save_path)
             self.status_bar.set_message(f"Saved to: {save_path}")
 
@@ -203,8 +251,8 @@ class Pose2DAlignmentLabeler(QMainWindow):
             f.write(f"{pose2d[0]} {pose2d[1]} {pose2d[2]}")
 
     def _compute_query_pose2d(self, tx, ty, rot, rot_dx, rot_dy):
-        rd = np.deg2rad(rot)
-        R = np.array([[np.cos(rd), -np.sin(rd)], [np.sin(rd), np.cos(rd)]])
+        rr = np.deg2rad(rot)
+        R = np.array([[np.cos(rr), -np.sin(rr)], [np.sin(rr), np.cos(rr)]])
         t1 = np.array([rot_dx, rot_dy])
         t2 = np.array([tx, ty])
         t = -R @ t1 + t1 + t2
@@ -217,12 +265,27 @@ class Pose2DAlignmentLabeler(QMainWindow):
         angle = (rot + self.template_pose2d[2] + 180) % 360 - 180
         return cx, cy, angle
 
+    def _get_transform_from_pose2d(self, query_rot_center):
+        query_cx, query_cy, query_angle = self.query_pose2d
+        query_c = np.array([query_cx, query_cy])
+        template_cx, template_cy, template_angle = self.template_pose2d
+        template_c = np.array([template_cx, template_cy])
+        rot_c = np.array(query_rot_center)
+
+        rd = (query_angle - template_angle + 180) % 360 - 180
+        rr = np.deg2rad(rd)
+        R = np.array([[np.cos(rr), -np.sin(rr)], [np.sin(rr), np.cos(rr)]])
+        tx, ty = template_c - R @ (query_c - rot_c) - rot_c
+        return tx, ty, rd
+
     def keyPressEvent(self, event):
         if event.key() == self.next_key:
             self._next_query()
         elif event.key() == self.prev_key:
             self._prev_query()
-        elif event.key() == self.save_key:
+        elif (
+            event.key() == self.save_key and event.modifiers() == self.save_key_modifier
+        ):
             self.save_query_pose2d()
         else:
             super().keyPressEvent(event)
@@ -231,6 +294,9 @@ class Pose2DAlignmentLabeler(QMainWindow):
         width, height = self.fp_aligner.width(), self.fp_aligner.height()
         width, height = width * self.viewer_scale, height * self.viewer_scale
         self.resize(int(width) + 20, int(height) + 100)
+
+    def _has_var(self, name):
+        return hasattr(self, name) and getattr(self, name) is not None
 
 
 class FingerprintManualAligner(QGraphicsScene):
@@ -287,6 +353,15 @@ class FingerprintManualAligner(QGraphicsScene):
         self.template_item = QGraphicsPixmapItem(color_template_pixmap)
         self.addItem(self.template_item)
         self.template_item.setZValue(0)
+
+    def get_query_rot_center(self):
+        if self._has_item("query_item"):
+            return self.query_item.origin_x, self.query_item.origin_y
+        return None
+
+    def transform_query_item(self, tx, ty, rot):
+        self.query_item.setPos(tx, ty)
+        self.query_item.set_rotation(rot)
 
     def _has_item(self, name):
         return hasattr(self, name) and getattr(self, name) in self.items()
@@ -381,6 +456,10 @@ class DraggablePixmapItem(QGraphicsPixmapItem):
         self.rotation_key = rotation_key
         self.rot_speed = rotation_speed
 
+    def set_rotation(self, angle):
+        self.cur_rot_angle = angle
+        self.setRotation(angle)
+
     def mousePressEvent(self, event):
         if event.button() == self.rotation_key:
             x, y = event.pos().x(), event.pos().y()
@@ -440,9 +519,19 @@ class CustomStatusBar(QStatusBar):
 
 
 if __name__ == "__main__":
+    from argparse import ArgumentParser
     import sys
 
+    parser = ArgumentParser()
+    parser.add_argument("-q", "--query-pattern", type=str, default="*.png")
+    parser.add_argument("-a", "--auto-find-template", action="store_true")
+    args = parser.parse_args()
+
     app = QApplication(sys.argv)
-    window = Pose2DAlignmentLabeler(viewer_scale=1.5)
+    window = Pose2DAlignmentLabeler(
+        viewer_scale=1.5,
+        enable_auto_find_template=args.auto_find_template,
+        default_query_pattern=args.query_pattern,
+    )
     window.show()
     sys.exit(app.exec_())

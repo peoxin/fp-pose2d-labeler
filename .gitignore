@@ -2,3 +2,5 @@
 *.png
 *.bmp
 *.pose2d
+*.txt
+*.template

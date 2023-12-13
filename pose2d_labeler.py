@@ -31,6 +31,7 @@ class Pose2DLabeler(QMainWindow):
         next_key=Qt.Key_D,
         prev_key=Qt.Key_A,
         save_key=Qt.Key_S,
+        save_key_modifier=Qt.ControlModifier,
         name_pose2d_file: Callable[[str], str] = None,
         default_img_pattern: str = "*.bmp",
     ):
@@ -75,6 +76,7 @@ class Pose2DLabeler(QMainWindow):
         self.next_key = next_key
         self.prev_key = prev_key
         self.save_key = save_key
+        self.save_key_modifier = save_key_modifier
 
         if name_pose2d_file is not None:
             self._get_pose2d_filepath = name_pose2d_file
@@ -109,9 +111,7 @@ class Pose2DLabeler(QMainWindow):
         pose2d = self._load_pose2d()
         self.annotator.set_pixmap_pose2d(pixmap, pose2d)
 
-        width, height = self.annotator.width(), self.annotator.height()
-        width, height = width * self.viewer_scale, height * self.viewer_scale
-        self.resize(int(width) + 20, int(height) + 80)
+        self._resize_window()
 
         self.status_bar.set_message(f"Image: {self.cur_img_path}")
         self.status_bar.set_idx_indicator(self.cur_idx, len(self.img_list))
@@ -166,10 +166,17 @@ class Pose2DLabeler(QMainWindow):
             self._next_image()
         elif event.key() == self.prev_key:
             self._prev_image()
-        elif event.key() == self.save_key:
+        elif (
+            event.key() == self.save_key and event.modifiers() == self.save_key_modifier
+        ):
             self.save_pose2d()
         else:
             super().keyPressEvent(event)
+
+    def _resize_window(self):
+        width, height = self.annotator.width(), self.annotator.height()
+        width, height = width * self.viewer_scale, height * self.viewer_scale
+        self.resize(int(width) + 20, int(height) + 80)
 
 
 class Pose2DAnnotator(QGraphicsScene):
@@ -310,9 +317,14 @@ class CustomStatusBar(QStatusBar):
 
 
 if __name__ == "__main__":
+    from argparse import ArgumentParser
     import sys
 
+    parser = ArgumentParser()
+    parser.add_argument("-i", "--img-pattern", type=str, default="*.bmp")
+    args = parser.parse_args()
+
     app = QApplication(sys.argv)
-    window = Pose2DLabeler()
+    window = Pose2DLabeler(default_img_pattern=args.img_pattern)
     window.show()
     sys.exit(app.exec_())

@@ -25,6 +25,7 @@ class ImageRotator(QMainWindow):
         next_key=Qt.Key_D,
         prev_key=Qt.Key_A,
         save_key=Qt.Key_S,
+        save_key_modifier=Qt.ControlModifier,
         name_pose2d_file: Callable[[str], str] = None,
         default_img_pattern: str = "*.bmp",
     ):
@@ -63,6 +64,7 @@ class ImageRotator(QMainWindow):
         self.next_key = next_key
         self.prev_key = prev_key
         self.save_key = save_key
+        self.save_key_modifier = save_key_modifier
 
         if name_pose2d_file is not None:
             self._get_pose2d_filepath = name_pose2d_file
@@ -185,7 +187,9 @@ class ImageRotator(QMainWindow):
             self._next_image()
         elif event.key() == self.prev_key:
             self._prev_image()
-        elif event.key() == self.save_key:
+        elif (
+            event.key() == self.save_key and event.modifiers() == self.save_key_modifier
+        ):
             self.save()
         else:
             super().keyPressEvent(event)
