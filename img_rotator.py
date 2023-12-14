@@ -102,7 +102,8 @@ class ImageRotator(QMainWindow):
             self.cur_pose2d_path = self._get_pose2d_filepath(self.cur_img_path)
             self.cur_pose2d = self._load_pose2d()
 
-        width, height = self.scene.width(), self.scene.height()
+        bound_rect = self.scene.itemsBoundingRect()
+        width, height = bound_rect.width(), bound_rect.height()
         self.resize(int(width) + 20, int(height) + 80)
 
         self.status_bar.set_message(f"Image: {self.cur_img_path}")

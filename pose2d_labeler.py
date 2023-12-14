@@ -174,7 +174,8 @@ class Pose2DLabeler(QMainWindow):
             super().keyPressEvent(event)
 
     def _resize_window(self):
-        width, height = self.annotator.width(), self.annotator.height()
+        bound_rect = self.annotator.itemsBoundingRect()
+        width, height = bound_rect.width(), bound_rect.height()
         width, height = width * self.viewer_scale, height * self.viewer_scale
         self.resize(int(width) + 20, int(height) + 80)
 

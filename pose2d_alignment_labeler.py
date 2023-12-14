@@ -23,6 +23,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         viewer_scale=1.0,
         query_color=(255, 0, 0, 150),
         template_color=(0, 0, 255, 255),
+        grayscale_th=250,
         rotation_key=Qt.RightButton,
         rotation_speed=0.8,
         rot_counterclockwise_key=Qt.Key_Q,
@@ -52,6 +53,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         self.fp_aligner = FingerprintManualAligner(
             query_color=query_color,
             template_color=template_color,
+            grayscale_th=grayscale_th,
             rotation_key=rotation_key,
             rotation_speed=rotation_speed,
             rot_counterclockwise_key=rot_counterclockwise_key,
@@ -162,8 +164,8 @@ class Pose2DAlignmentLabeler(QMainWindow):
         self.cur_query_path = self.query_list[self.cur_idx]
         self.cur_query_pose2d_path = self._get_query_pose2d_file(self.cur_query_path)
 
-        query_pixmap = QPixmap(self.cur_query_path)
-        self.fp_aligner.set_query_pixmap(query_pixmap)
+        query_img = cv2.imread(self.cur_query_path, cv2.IMREAD_GRAYSCALE)
+        self.fp_aligner.set_query_image(query_img)
         self._load_query_pose2d()
         self._transform_query_by_pose2d()
 
@@ -176,8 +178,8 @@ class Pose2DAlignmentLabeler(QMainWindow):
         self.status_bar.set_idx_indicator(self.cur_idx, len(self.query_list))
 
     def _load_template(self):
-        template_pixmap = QPixmap(self.template_path)
-        self.fp_aligner.set_template_pixmap(template_pixmap)
+        template_img = cv2.imread(self.template_path, cv2.IMREAD_GRAYSCALE)
+        self.fp_aligner.set_template_image(template_img)
 
         self._resize_window()
 
@@ -185,8 +187,10 @@ class Pose2DAlignmentLabeler(QMainWindow):
         if Path(self.cur_query_pose2d_path).exists():
             with open(self.cur_query_pose2d_path, "r") as f:
                 self.query_pose2d = [float(x) for x in f.readline().split()]
+                self.status_bar.set_tool_message("pose2d exists")
         else:
             self.query_pose2d = None
+            self.status_bar.clear_tool_message()
 
     def _load_template_pose2d(self):
         if Path(self.template_pose2d_path).exists():
@@ -234,6 +238,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
             save_path = self._get_query_pose2d_file(self.cur_query_path)
             self._write_pose2d(pose2d, save_path)
             self.status_bar.set_message(f"Saved to: {save_path}")
+            self.status_bar.set_tool_message("pose2d exists")
 
     def save_as_query_pose2d(self):
         if self.fp_aligner.is_aligned():
@@ -291,7 +296,8 @@ class Pose2DAlignmentLabeler(QMainWindow):
             super().keyPressEvent(event)
 
     def _resize_window(self):
-        width, height = self.fp_aligner.width(), self.fp_aligner.height()
+        bound_rect = self.fp_aligner.itemsBoundingRect()
+        width, height = bound_rect.width(), bound_rect.height()
         width, height = width * self.viewer_scale, height * self.viewer_scale
         self.resize(int(width) + 20, int(height) + 100)
 
@@ -332,9 +338,10 @@ class FingerprintManualAligner(QGraphicsScene):
         self.move_right_key = move_right_key
         self.key_move_step = key_move_step
 
-    def set_query_pixmap(self, query_pixmap):
+    def set_query_image(self, query_img):
         self._safe_remove_item("query_item")
-        color_query_pixmap, center = self._color_ridge(query_pixmap, self.query_color)
+        color_query_img, center = self._color_ridge(query_img, self.query_color)
+        color_query_pixmap = self._array_to_pixmap(color_query_img)
         self.query_item = DraggablePixmapItem(
             color_query_pixmap,
             transform_origin=center,
@@ -345,11 +352,10 @@ class FingerprintManualAligner(QGraphicsScene):
         self.query_item.setZValue(1)
         self.query_item.setFocus()
 
-    def set_template_pixmap(self, template_pixmap):
+    def set_template_image(self, template_img):
         self._safe_remove_item("template_item")
-        color_template_pixmap, _ = self._color_ridge(
-            template_pixmap, self.template_color
-        )
+        color_template_img, _ = self._color_ridge(template_img, self.template_color)
+        color_template_pixmap = self._array_to_pixmap(color_template_img)
         self.template_item = QGraphicsPixmapItem(color_template_pixmap)
         self.addItem(self.template_item)
         self.template_item.setZValue(0)
@@ -370,31 +376,19 @@ class FingerprintManualAligner(QGraphicsScene):
         if self._has_item(name):
             self.removeItem(getattr(self, name))
 
-    def _color_ridge(self, pixmap, color):
-        img = self._pixmap_to_array(pixmap)
+    def _color_ridge(self, img, color):
         ridge_mask = np.where(img < self.grayscale_th, 255, 0).astype(np.uint8)
         center = self._compute_mask_center(ridge_mask)
         color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGBA)
         color_img[ridge_mask == 0] = (255, 255, 255, 1)
         color_img[ridge_mask > 0] = color
-        color_pixmap = self._array_to_pixmap(color_img)
-        return color_pixmap, center
+        return color_img, center
 
     def _compute_mask_center(self, mask):
         M = cv2.moments(mask)
         center_x = int(M["m10"] / M["m00"])
         center_y = int(M["m01"] / M["m00"])
         return center_x, center_y
-
-    def _pixmap_to_array(self, pixmap):
-        qimage = pixmap.toImage().convertToFormat(QImage.Format_Grayscale8)
-        width, height = qimage.width(), qimage.height()
-        bytes_per_line = qimage.bytesPerLine()
-        ptr = qimage.bits()
-        ptr.setsize(height * bytes_per_line)
-        array = np.frombuffer(ptr, np.uint8).reshape((height, bytes_per_line))
-        array = array[:, :width]
-        return array
 
     def _array_to_pixmap(self, array):
         height, width = array.shape[:2]
@@ -497,9 +491,12 @@ class CustomStatusBar(QStatusBar):
         super().__init__(parent)
         self.main_message = ""
         self.addition_message = ""
+        self.tool_message = ""
         self.message = QLabel()
+        self.tool = QLabel()
         self.idx_indicator = QLabel()
-        self.addPermanentWidget(self.message, stretch=1)
+        self.addPermanentWidget(self.message, stretch=5)
+        self.addPermanentWidget(self.tool, stretch=1)
         self.addPermanentWidget(self.idx_indicator)
 
     def set_message(self, msg):
@@ -514,6 +511,14 @@ class CustomStatusBar(QStatusBar):
         msg = f"{self.main_message}\n{self.addition_message}"
         self.message.setText(msg)
 
+    def set_tool_message(self, msg):
+        self.tool_message = msg
+        self.tool.setText(msg)
+
+    def clear_tool_message(self):
+        self.tool_message = ""
+        self.tool.setText("")
+
     def set_idx_indicator(self, idx, list_len):
         self.idx_indicator.setText(f"[{idx+1}/{list_len}]")
 
@@ -527,10 +532,28 @@ if __name__ == "__main__":
     parser.add_argument("-a", "--auto-find-template", action="store_true")
     args = parser.parse_args()
 
+    def find_template_path(query_path):
+        src_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi"
+        log_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi_pose2d"
+        relative_path = Path(query_path).relative_to(src_root_dir)
+        log_path = Path(log_root_dir) / relative_path
+        log_path = log_path.with_suffix(".txt")
+        with open(log_path, "r") as f:
+            line = f.readline().strip()
+            name, score, _, _, _ = line.split()
+        print(name, score)
+
+        template_root_dir = r"D:\peoxin\Projects\oxi_dataset\roll"
+        person = relative_path.parents[1].name
+        template_path = Path(template_root_dir) / person / f"{name}.bmp"
+        return str(template_path)
+
     app = QApplication(sys.argv)
     window = Pose2DAlignmentLabeler(
         viewer_scale=1.5,
+        grayscale_th=240,
         enable_auto_find_template=args.auto_find_template,
+        template_auto_finder=find_template_path,
         default_query_pattern=args.query_pattern,
     )
     window.show()
