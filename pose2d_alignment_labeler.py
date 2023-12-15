@@ -38,6 +38,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         prev_key=Qt.Key_A,
         save_key=Qt.Key_S,
         save_key_modifier=Qt.ControlModifier,
+        template_calibrated=False,
         name_query_pose2d_file: Callable[[str], str] = None,
         name_template_pose2d_file: Callable[[str], str] = None,
         enable_auto_find_template=False,
@@ -113,6 +114,7 @@ class Pose2DAlignmentLabeler(QMainWindow):
         elif template_auto_finder is not None:
             self._get_template_from_query = template_auto_finder
 
+        self.template_calibrated = template_calibrated
         self.default_query_pattern = default_query_pattern
 
     def open_query_image(self):
@@ -154,9 +156,13 @@ class Pose2DAlignmentLabeler(QMainWindow):
 
     def _open_template(self, filepath):
         self.template_path = filepath
-        self.template_pose2d_path = self._get_template_pose2d_file(filepath)
         self._load_template()
-        self._load_template_pose2d()
+        if not self.template_calibrated:
+            self.template_pose2d_path = self._get_template_pose2d_file(filepath)
+            self._load_template_pose2d()
+        else:
+            self._set_calibrated_template_pose2d()
+
         self._transform_query_by_pose2d()
         self.status_bar.set_addition_message(f"Template: {self.template_path}")
 
@@ -178,8 +184,8 @@ class Pose2DAlignmentLabeler(QMainWindow):
         self.status_bar.set_idx_indicator(self.cur_idx, len(self.query_list))
 
     def _load_template(self):
-        template_img = cv2.imread(self.template_path, cv2.IMREAD_GRAYSCALE)
-        self.fp_aligner.set_template_image(template_img)
+        self.template_img = cv2.imread(self.template_path, cv2.IMREAD_GRAYSCALE)
+        self.fp_aligner.set_template_image(self.template_img)
 
         self._resize_window()
 
@@ -198,6 +204,12 @@ class Pose2DAlignmentLabeler(QMainWindow):
                 self.template_pose2d = [float(x) for x in f.readline().split()]
         else:
             raise FileNotFoundError(f"{self.template_pose2d_path} not found.")
+
+    def _set_calibrated_template_pose2d(self):
+        cx = float(self.template_img.shape[1] // 2)
+        cy = float(self.template_img.shape[0] // 2)
+        angle = 0.0
+        self.template_pose2d = [cx, cy, angle]
 
     def _transform_query_by_pose2d(self):
         if self._has_var("query_pose2d") and self._has_var("template_pose2d"):
@@ -495,8 +507,8 @@ class CustomStatusBar(QStatusBar):
         self.message = QLabel()
         self.tool = QLabel()
         self.idx_indicator = QLabel()
-        self.addPermanentWidget(self.message, stretch=5)
-        self.addPermanentWidget(self.tool, stretch=1)
+        self.addPermanentWidget(self.message, stretch=1)
+        self.addPermanentWidget(self.tool)
         self.addPermanentWidget(self.idx_indicator)
 
     def set_message(self, msg):
@@ -548,12 +560,29 @@ if __name__ == "__main__":
         template_path = Path(template_root_dir) / person / f"{name}.bmp"
         return str(template_path)
 
+    def find_calibrated_template_path(query_path):
+        src_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi-copy-selected"
+        log_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi_pose2d"
+        relative_path = Path(query_path).relative_to(src_root_dir)
+        log_path = Path(log_root_dir) / relative_path
+        log_path = log_path.with_suffix(".txt")
+        with open(log_path, "r") as f:
+            line = f.readline().strip()
+            name, score, _, _, _ = line.split()
+        print(name, score)
+
+        template_root_dir = r"D:\peoxin\Projects\oxi_dataset\roll_rot1024"
+        person = relative_path.parents[1].name
+        template_path = Path(template_root_dir) / person / f"{name}.bmp"
+        return str(template_path)
+
     app = QApplication(sys.argv)
     window = Pose2DAlignmentLabeler(
         viewer_scale=1.5,
         grayscale_th=240,
+        template_calibrated=True,
         enable_auto_find_template=args.auto_find_template,
-        template_auto_finder=find_template_path,
+        template_auto_finder=find_calibrated_template_path,
         default_query_pattern=args.query_pattern,
     )
     window.show()
