@@ -541,6 +541,7 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument("-q", "--query-pattern", type=str, default="*.png")
+    parser.add_argument("-c", "--template-calibrated", action="store_true")
     parser.add_argument("-a", "--auto-find-template", action="store_true")
     args = parser.parse_args()
 
@@ -561,8 +562,11 @@ if __name__ == "__main__":
         return str(template_path)
 
     def find_calibrated_template_path(query_path):
-        src_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi-copy-selected"
-        log_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi_pose2d"
+        src_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi"
+        log_root_dir = r"D:\peoxin\Projects\oxi_dataset\new_oxi_pose2d"
+        # src_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi-copy-selected"
+        # log_root_dir = r"D:\peoxin\Projects\oxi_dataset\oxi_pose2d"
+
         relative_path = Path(query_path).relative_to(src_root_dir)
         log_path = Path(log_root_dir) / relative_path
         log_path = log_path.with_suffix(".txt")
@@ -571,16 +575,17 @@ if __name__ == "__main__":
             name, score, _, _, _ = line.split()
         print(name, score)
 
-        template_root_dir = r"D:\peoxin\Projects\oxi_dataset\roll_rot1024"
+        template_root_dir = r"D:\peoxin\Projects\oxi_dataset\roll_calibrated"
+        # template_root_dir = r"D:\peoxin\Projects\oxi_dataset\roll_rot1024"
         person = relative_path.parents[1].name
         template_path = Path(template_root_dir) / person / f"{name}.bmp"
         return str(template_path)
 
     app = QApplication(sys.argv)
     window = Pose2DAlignmentLabeler(
-        viewer_scale=1.5,
+        viewer_scale=1.0,
         grayscale_th=240,
-        template_calibrated=True,
+        template_calibrated=args.template_calibrated,
         enable_auto_find_template=args.auto_find_template,
         template_auto_finder=find_calibrated_template_path,
         default_query_pattern=args.query_pattern,
